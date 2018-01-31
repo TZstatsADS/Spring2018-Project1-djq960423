@@ -1,0 +1,341 @@
+---
+title: "Differences in inaugural speeches between presidents from different parties"
+author: "Jiaqi Dong jd3418"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+Inaugural speech is the first and one of the most important speech that a president tells people his political claims and what he is going to do for U.S. after he is elected. A president's party may also influence his political claims and the way he speaks. Presidents from different parties may have some differences when they give the inaugural speech, like length of sentences and frequency of mentioning some certain words.
+
+In this report, I use data of all the inaugural speeches of every U.S. presidents and split them into three groups: "Democratic", "Republican" and "Others". The length of sentences in their speeches of each group is analysed. The content of the short sentences are shown. And I also inspect a overall wordcloud to see what words are often mentioned for each group.
+
+### Step 0: check and install needed packages. Load the libraries and functions. 
+
+```{r, message=FALSE, warning=FALSE}
+
+packages.used=c("rvest", "tibble", "qdap", 
+                "sentimentr", "gplots", "dplyr",
+                "tm", "syuzhet", "factoextra", 
+                "beeswarm", "scales", "RColorBrewer",
+                "RANN", "tm", "topicmodels", 
+                "wordcloud", "tidytext","xlsx")
+
+# check packages that need to be installed.
+packages.needed=setdiff(packages.used, 
+                        intersect(installed.packages()[,1], 
+                                  packages.used))
+# install additional packages
+if(length(packages.needed)>0){
+  install.packages(packages.needed, dependencies = TRUE)
+}
+# load packages
+library("rvest")
+library("tibble")
+library("qdap")
+library("sentimentr")
+library("gplots")
+library("dplyr")
+library("tm")
+library("syuzhet")
+library("factoextra")
+library("beeswarm")
+library("scales")
+library("RColorBrewer")
+library("RANN")
+library("tm")
+library("topicmodels")
+library("wordcloud")
+library("tidytext")
+library("xlsx")
+
+source("../lib/plotstacked.R")
+source("../lib/speechFuncs.R")
+```
+
+This notebook was prepared with the following environmental settings.
+
+```{r}
+print(R.version)
+```
+
+### Step 1: Read in the speeches
+First, let's read in all the information about the presidents'names, parties and their speech contents. I deleted all the double quotes from the raw data because R fail to read the text everytime it meets a quote, that is why my speeches are read from the output folder.
+```{r, warning=FALSE}
+# Read inauguration information, which contains party.
+inaug.info=read.xlsx("../data/InaugurationInfo.xlsx",header = T, sheetIndex = 1)
+# Read in speeches
+for(i in 1:nrow(inaug.info)){
+  inaug.info$Filename[i]=paste0("inaug",inaug.info$File[i],"-",inaug.info$Term[i],".txt")
+  inaug.info$Fulltext[i]=paste(readLines(paste0("../output/inauguralSpeeches/",
+                                           inaug.info$Filename[i]),n=-1, skipNul=TRUE),
+                               collapse = " ")
+}
+```
+
+### Step 2:Data Processing --- generate list of sentences
+We will use sentences as units of analysis for this project, as sentences are natural languge units for organizing thoughts and ideas. 
+
+We assign an sequential id to each sentence in a speech (`sent.id`) and also calculated the number of words in each sentence as *sentence length* (`word.count`).
+
+```{r, message=FALSE, warning=FALSE}
+# Detect sentences
+sentence.list=NULL
+for(i in 1:nrow(inaug.info)){
+  sentences=sent_detect(inaug.info$Fulltext[i],
+                        endmarks = c("?", ".", "!", "|",";"))
+# Assign an sequential id and calculate the number of words
+  if(length(sentences)>0){
+    word.count=word_count(sentences)
+    sentence.list=rbind(sentence.list, 
+                        cbind(inaug.info[i,-ncol(inaug.info)],
+                              sentences=as.character(sentences), 
+                              word.count,
+                              sent.id=1:length(sentences)
+                              )
+    )
+  }
+}
+```
+
+Some non-sentences exist in raw data due to erroneous extra end-of sentence marks. 
+```{r}
+# Remove the zero-length sentences
+sentence.list=
+  sentence.list%>%
+  filter(!is.na(word.count)) 
+```
+
+### Step 3: Data analysis --- length of sentences
+
+#### Democratic Party
+First, let's look at the sentence length distribution of presidents from Democratic Party.
+
+```{r, fig.width = 3, fig.height = 3}
+par(mar=c(4, 11, 2, 2))
+sentence.list.sel=filter(sentence.list, 
+                        Party=="Democratic")
+sentence.list.sel$File=factor(sentence.list.sel$File)
+sentence.list.sel$FileOrdered=reorder(sentence.list.sel$File, 
+                                  sentence.list.sel$word.count, 
+                                  mean, 
+                                  order=T)
+beeswarm(word.count~FileOrdered, 
+         data=sentence.list.sel,
+         horizontal = TRUE, 
+         pch=16, col=alpha(brewer.pal(9, "Set1"), 0.6), 
+         cex=0.55, cex.axis=0.8, cex.lab=0.8,
+         spacing=5/nlevels(sentence.list.sel$FileOrdered),
+         las=2, xlab="Number of words in a sentence.", ylab="",
+         main="Democratic Party")
+```
+
+We can see that only about 1/3 of them seems to have a perference on speaking shorter sentences.
+
+#### Republican Party
+Then, let's look at length of snetences in the speeches given by presidents from Republican Party.
+
+```{r, fig.width = 3, fig.height = 3}
+par(mar=c(4, 11, 2, 2))
+sentence.list.sel=filter(sentence.list, 
+                        Party=="Republican")
+sentence.list.sel$File=factor(sentence.list.sel$File)
+sentence.list.sel$FileOrdered=reorder(sentence.list.sel$File, 
+                                  sentence.list.sel$word.count, 
+                                  mean, 
+                                  order=T)
+beeswarm(word.count~FileOrdered, 
+         data=sentence.list.sel,
+         horizontal = TRUE, 
+         pch=16, col=alpha(brewer.pal(9, "Set1"), 0.6), 
+         cex=0.55, cex.axis=0.8, cex.lab=0.8,
+         spacing=5/nlevels(sentence.list.sel$FileOrdered),
+         las=2, xlab="Number of words in a sentence.", ylab="",
+         main="Republican Party")
+```
+
+Unlike those from Democratic Party, about half of the presidents from Republican Party prefers speaking shorter sentences while giving their inaugural speech. 
+
+#### Other parties
+Finally, let's look at presidents from other parties.
+
+```{r, fig.width = 3, fig.height = 3}
+party.other=c("NA","Fedralist","Democratic-Republican Party","Whig")
+par(mar=c(4, 11, 2, 2))
+sentence.list.sel=filter(sentence.list, 
+                        Party%in%party.other)
+sentence.list.sel$File=factor(sentence.list.sel$File)
+sentence.list.sel$FileOrdered=reorder(sentence.list.sel$File, 
+                                  sentence.list.sel$word.count, 
+                                  mean, 
+                                  order=T)
+beeswarm(word.count~FileOrdered, 
+         data=sentence.list.sel,
+         horizontal = TRUE, 
+         pch=16, col=alpha(brewer.pal(9, "Set1"), 0.6), 
+         cex=0.55, cex.axis=0.8, cex.lab=0.8,
+         spacing=5/nlevels(sentence.list.sel$FileOrdered),
+         las=2, xlab="Number of words in a sentence.", ylab="",
+         main="Other Parties")
+```
+
+These presidents are elected hundreds of years ago, I thought they may speak longer sentences, but the truth is that most of them prefer shorter sentences. I think this maybe related to the way they give their speeches in that time. There were no televisions for people to listen to their speeches very carefully, so they have to make things clear in short sentences and let people feel their determination.
+
+### Step 4: Data analysis --- content of short sentences
+Let's now look at content in these short sentences from presidents of different parties.
+```{r}
+# Democratic Party short sentence content
+sentence.list%>%
+  filter(Party=="Democratic",
+         word.count<=3)%>%
+  select(sentences)
+```
+
+```{r}
+# Republican Party short sentence content
+sentence.list%>%
+  filter(Party=="Republican",
+         word.count<=3)%>%
+  select(sentences)
+```
+
+```{r}
+# Other parties short sentence content
+sentence.list%>%
+  filter(Party%in%party.other,
+         word.count<=3)%>%
+  select(sentences)
+```
+
+From the result, we can see that most short sentences used by Democratic Party presidents are greetings and thanks, while presidents from Republican Party tends to use more short sentences to point out the problem of the country and actions he wants to take. Presidents from other parties semms rarely use sentences shorter than 3 words.
+
+### Step 5: Inspect an overall wordcloud for each group
+
+#### Democratic Party
+```{r}
+sentence.list.D=filter(sentence.list, 
+                        Party=="Democratic")
+corpus.list=sentence.list.D[2:(nrow(sentence.list.D)-1), ]
+sentence.pre=sentence.list.D$sentences[1:(nrow(sentence.list.D)-2)]
+sentence.post=sentence.list.D$sentences[3:(nrow(sentence.list.D)-1)]
+corpus.list$snipets=paste(sentence.pre, corpus.list$sentences, sentence.post, sep=" ")
+rm.rows=(1:nrow(corpus.list))[corpus.list$sent.id==1]
+rm.rows=c(rm.rows, rm.rows-1)
+corpus.list=corpus.list[-rm.rows, ]
+docs <- Corpus(VectorSource(corpus.list$snipets))
+#remove potentially problematic symbols
+docs <-tm_map(docs,content_transformer(tolower))
+#remove punctuation
+docs <- tm_map(docs, removePunctuation)
+#Strip digits
+docs <- tm_map(docs, removeNumbers)
+#remove stopwords
+docs <- tm_map(docs, removeWords, stopwords("english"))
+#remove whitespace
+docs <- tm_map(docs, stripWhitespace)
+#Stem document
+docs <- tm_map(docs,stemDocument)
+tdm.all<-TermDocumentMatrix(docs)
+tdm.tidy=tidy(tdm.all)
+tdm.overall=summarise(group_by(tdm.tidy, term), sum(count))
+```
+```{r, fig.height=6, fig.width=6}
+wordcloud(tdm.overall$term, tdm.overall$`sum(count)`,
+          scale=c(5,0.5),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Blues"))
+```
+
+#### Republican Party
+```{r}
+sentence.list.R=filter(sentence.list, 
+                        Party=="Republican")
+corpus.list=sentence.list.R[2:(nrow(sentence.list.R)-1), ]
+sentence.pre=sentence.list.R$sentences[1:(nrow(sentence.list.R)-2)]
+sentence.post=sentence.list.R$sentences[3:(nrow(sentence.list.R)-1)]
+corpus.list$snipets=paste(sentence.pre, corpus.list$sentences, sentence.post, sep=" ")
+rm.rows=(1:nrow(corpus.list))[corpus.list$sent.id==1]
+rm.rows=c(rm.rows, rm.rows-1)
+corpus.list=corpus.list[-rm.rows, ]
+docs <- Corpus(VectorSource(corpus.list$snipets))
+#remove potentially problematic symbols
+docs <-tm_map(docs,content_transformer(tolower))
+#remove punctuation
+docs <- tm_map(docs, removePunctuation)
+#Strip digits
+docs <- tm_map(docs, removeNumbers)
+#remove stopwords
+docs <- tm_map(docs, removeWords, stopwords("english"))
+#remove whitespace
+docs <- tm_map(docs, stripWhitespace)
+#Stem document
+docs <- tm_map(docs,stemDocument)
+tdm.all<-TermDocumentMatrix(docs)
+tdm.tidy=tidy(tdm.all)
+tdm.overall=summarise(group_by(tdm.tidy, term), sum(count))
+```
+```{r, fig.height=6, fig.width=6}
+wordcloud(tdm.overall$term, tdm.overall$`sum(count)`,
+          scale=c(5,0.5),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Blues"))
+```
+
+#### Other parties
+```{r}
+sentence.list.O=filter(sentence.list, 
+                        Party%in%party.other)
+corpus.list=sentence.list.O[2:(nrow(sentence.list.O)-1), ]
+sentence.pre=sentence.list.O$sentences[1:(nrow(sentence.list.O)-2)]
+sentence.post=sentence.list.O$sentences[3:(nrow(sentence.list.O)-1)]
+corpus.list$snipets=paste(sentence.pre, corpus.list$sentences, sentence.post, sep=" ")
+rm.rows=(1:nrow(corpus.list))[corpus.list$sent.id==1]
+rm.rows=c(rm.rows, rm.rows-1)
+corpus.list=corpus.list[-rm.rows, ]
+docs <- Corpus(VectorSource(corpus.list$snipets))
+#remove potentially problematic symbols
+docs <-tm_map(docs,content_transformer(tolower))
+#remove punctuation
+docs <- tm_map(docs, removePunctuation)
+#Strip digits
+docs <- tm_map(docs, removeNumbers)
+#remove stopwords
+docs <- tm_map(docs, removeWords, stopwords("english"))
+#remove whitespace
+docs <- tm_map(docs, stripWhitespace)
+#Stem document
+docs <- tm_map(docs,stemDocument)
+tdm.all<-TermDocumentMatrix(docs)
+tdm.tidy=tidy(tdm.all)
+tdm.overall=summarise(group_by(tdm.tidy, term), sum(count))
+```
+```{r, fig.height=6, fig.width=6}
+wordcloud(tdm.overall$term, tdm.overall$`sum(count)`,
+          scale=c(5,0.5),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Blues"))
+```
+
+From the results we can notice many interesting things. Presidents from both Republican party and Democratic Party says "will" most, that means in the inaugural speech, they are telling people about their future plans and making promises. However, in the speeches of other presidents, they talk more about power, state, government, which means in their time, controling people well was the most important thing. What's more, we can also see the word "law" appears much more often in speeches of presidents of Republican party than Democratic Party, which means that Republican party's presidents seems pay more attention to legal construction.
+
+### Summary
+In this report, I use data of all the inaugural speeches of every U.S. presidents and split them into three groups: "Democratic", "Republican" and "Others". The length of sentences in their speeches of each group is analysed. The content of the short sentences are shown. And I also inspect a overall wordcloud to see what words are often mentioned for each group.
+
+From the result, we know that about 1/3 of the presidents from Democratic Party seems to have a perference on speaking shorter sentences while the precentage is about 1/2 in Republican Party. Most short sentences used by Democratic Party presidents are greetings and thanks, while presidents from Republican Party tends to use more short sentences to point out the problem of the country and actions he wants to take. Presidents from other parties semms rarely use sentences shorter than 3 words.
+
+What's more, presidents from both Republican party and Democratic Party says "will" most, that means in the inaugural speech, they are telling people about their future plans and making promises. However, in the speeches of other presidents, they talk more about power, state, government, which means in their time, controling people well was the most important thing. What's more, we can also see the word "law" appears much more often in speeches of presidents of Republican party than Democratic Party, which means that Republican party's presidents seems pay more attention to legal construction.
